@@ -19,10 +19,10 @@ from open_webui.models.users import Users
 
 class Tools:
     def __init__(self):
-        pass
+        self.citation = False
 
     async def generate_image(
-        self, prompt: str, __request__: Request, __user__: dict, __event_emitter__=None
+        self, prompt: str, __request__: Request, __user__: dict, __id__: str, __event_emitter__=None
     ) -> str:
         """
         Generate an image given a prompt
@@ -55,6 +55,24 @@ class Tools:
                     {
                         "type": "message",
                         "data": {"content": f"![Generated Image]({image['url']})"},
+                    }
+                )
+                await __event_emitter__(
+                    {
+                        "type": "citation",
+                        "data": {
+                            "document": [f"{image['url']}"],
+                            "metadata": [
+                                {
+                                    "source": f"{image['url']}",
+                                    "prompt": prompt,
+                                }
+                            ],
+                            "source": {
+                                "name": f"TOOL:{__id__}/generate_image with prompt: {prompt}",
+                                "url": f"{image['url']}"
+                            }
+                        }
                     }
                 )
 
