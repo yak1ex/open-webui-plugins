@@ -76,7 +76,7 @@ class Tools:
                     }
                 )
 
-            return f"Notify the user that the image has been successfully generated"
+            return f"Done."
 
         except Exception as e:
             await __event_emitter__(
