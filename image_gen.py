@@ -1,9 +1,9 @@
 """
-title: Image Gen
-author: open-webui
-author_url: https://github.com/open-webui
-funding_url: https://github.com/open-webui
-version: 0.1
+title: Image Gen Plus
+author: open-webui, yak_ex
+author_url: https://github.com/yak1ex/
+git_url: https://github.com/yak1ex/open-webui-plugins.git
+version: 0.2
 required_open_webui_version: 0.5.3
 """
 
@@ -25,7 +25,7 @@ class Tools:
         self, prompt: str, __request__: Request, __user__: dict, __id__: str, __event_emitter__=None
     ) -> str:
         """
-        Generate an image given a prompt
+        Generate an image according to a given prompt
 
         :param prompt: prompt to use for image generation
         """
