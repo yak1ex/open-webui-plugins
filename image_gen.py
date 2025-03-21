@@ -1,10 +1,16 @@
 """
 title: Image Gen Plus
-author: open-webui, yak_ex
+author: open-webui, justinrahb, yak_ex
 author_url: https://github.com/yak1ex/
 git_url: https://github.com/yak1ex/open-webui-plugins.git
 version: 0.2
 required_open_webui_version: 0.5.3
+"""
+
+"""
+This is the modified version of the Image Gen(0.5.3+)
+https://openwebui.com/t/justinrahb/image_gen released by justinrahb.
+
 """
 
 import os
