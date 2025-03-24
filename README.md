@@ -50,3 +50,26 @@ https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc44
   * If `str` is returned, `citation` event is emitted as described in https://docs.openwebui.com/features/plugin/tools/#citations
   * `tools` are collected here: `get_tools()` https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/tools.py#L38
     * extra parameters are prepared also here: `process_chat_payload()` https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/middleware.py#L625
+
+### Action
+
+* Action is loaded from module by: get_action_items_from_module() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/models.py#L171
+  * Module is loaded by: load_function_module_by_id() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/plugin.py#L118
+* Action is handled by: chat_action() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/chat.py#L348
+* Action is rendered by: https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/src/lib/components/chat/Messages/ResponseMessage.svelte#L1299
+* Action has an optional `actions` attribute similar as `pipes` in pipe functions `actions` but it can not be a callable different from `pipes`.
+
+### Chat
+
+* event_caller() and event_emitter() make `chat_events` on frontend-backend socket.
+  * Handled by frontent: https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/src/lib/components/chat/Chat.svelte#L237
+    * If input is canceled, false is returned by callback. https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/src/lib/components/chat/Chat.svelte#L1895
+* New message ID is created by UUIDv4
+* Chat is updated from frontend to backend by: UpdateChatById() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/src/lib/apis/chats/index.ts#L793
+  * Backend: https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/routers/chats.py#L360
+    * https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/models/chats.py#L161
+* Helper functions
+  * get_last_user_message() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/misc.py#L82
+  * add_or_update_user_message() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/misc.py#L152
+    * does not trigger chat completion
+* Frontend builds parent-children relationships among messages, creates a pair of user and assistant messages when a user input is submitted, and triggers chat completion. So, it seems that it is a way to call `postMessage()` with `input:prompt` and `input:prompt:submit` type, by a chat message with `execute` type for creating a new user message.
