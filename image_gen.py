@@ -31,9 +31,17 @@ class Tools:
         self, prompt: str, __request__: Request, __user__: dict, __id__: str, __event_emitter__=None
     ) -> str:
         """
-        Generate an image according to a given prompt
+        Generate an image by passing a textual prompt given by parameter
+        to an external image generator.
+        If you are asked to generate an image, you can use this tool.
+        The result of the generated image is shown to a user automatically.
+        So, you don't need to add URL or file content.
+        If the input from the user is not in detail, in general,
+        it is recommended to add description in detail in varirous aspects,
+        such as color, style, feature of main topic, background and so on.
 
-        :param prompt: prompt to use for image generation
+        :param prompt: textual description for the image to be generated,
+                       which is passed to external image generator.
         """
 
         await __event_emitter__(
