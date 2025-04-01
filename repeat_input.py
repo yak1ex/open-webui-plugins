@@ -48,7 +48,7 @@ class Action:
         )
         print(response)
 
-        if __event_emitter__:
+        if response and __event_emitter__:
             await __event_emitter__(
                 {
                     "type": "status",
