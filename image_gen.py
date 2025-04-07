@@ -13,14 +13,18 @@ https://openwebui.com/t/justinrahb/image_gen released by justinrahb.
 
 """
 
+import asyncio
 import os
+import re
 import requests
 from datetime import datetime
 from typing import Callable
 from fastapi import Request
 
 from open_webui.routers.images import image_generations, GenerateImageForm
+from open_webui.models.chats import Chats
 from open_webui.models.users import Users
+from open_webui.tasks import create_task
 
 
 class Tools:
@@ -28,7 +32,15 @@ class Tools:
         self.citation = False
 
     async def generate_image(
-        self, prompt: str, __request__: Request, __user__: dict, __id__: str, __event_emitter__=None
+        self,
+        prompt: str,
+        __request__: Request,
+        __user__: dict,
+        __id__: str,
+        __event_emitter__=None,
+        __model__=None,
+        __metadata__=None,
+        __messages__=None,
     ) -> str:
         """
         Generate an image by passing a textual prompt given by parameter
@@ -43,6 +55,8 @@ class Tools:
         :param prompt: textual description for the image to be generated,
                        which is passed to external image generator.
         """
+        native = __metadata__.get("function_calling", "") == "native"
+        print(native)
 
         await __event_emitter__(
             {
@@ -63,32 +77,74 @@ class Tools:
                     "data": {"description": "Generated an image", "done": True},
                 }
             )
+            print(images)
 
-            for image in images:
-                await __event_emitter__(
-                    {
-                        "type": "message",
-                        "data": {"content": f"![Generated Image]({image['url']} \"{prompt}\")"},
-                    }
-                )
-                await __event_emitter__(
-                    {
-                        "type": "citation",
-                        "data": {
-                            "document": [f"{image['url']}"],
-                            "metadata": [
-                                {
-                                    "source": f"{image['url']}",
-                                    "prompt": prompt,
-                                }
-                            ],
-                            "source": {
-                                "name": f"TOOL:{__id__}/generate_image with prompt: {prompt}",
-                                "url": f"{image['url']}"
-                            }
+            async def emitter():
+                print("emitter() called")
+                if native:
+                    tool_call_ids = __metadata__.get("tool_call_ids", None)
+                    if tool_call_ids:
+                        re_patterns = list(
+                            map(
+                                lambda tool_call_id: f'type="tool_calls" done="true" id="{tool_call_id}"',
+                                tool_call_ids,
+                            )
+                        )
+                    else:
+                        re_patterns = r'type="tool_calls" done="true"'
+
+                    for _ in range(20):
+                        message = Chats.get_message_by_id_and_message_id(
+                            __metadata__["chat_id"], __metadata__["message_id"]
+                        )
+                        print(message)
+                        if all(
+                            map(
+                                lambda re_pattern: re.search(
+                                    re_pattern, message.get("content", "")
+                                ),
+                                re_patterns,
+                            )
+                        ):
+                            break
+                        print("wait")
+                        await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.5)
+
+                print("emit")
+                for image in images:
+                    await __event_emitter__(
+                        {
+                            "type": "message",
+                            "data": {
+                                "content": f"![Generated Image]({image['url']} \"{prompt}\")"
+                            },
                         }
-                    }
-                )
+                    )
+                    print(f"![Generated Image]({image['url']} \"{prompt}\")")
+                    await __event_emitter__(
+                        {
+                            "type": "citation",
+                            "data": {
+                                "document": [f"{image['url']}"],
+                                "metadata": [
+                                    {
+                                        "source": f"{image['url']}",
+                                        "prompt": prompt,
+                                    }
+                                ],
+                                "source": {
+                                    "name": f"TOOL:{__id__}/generate_image with prompt: {prompt}",
+                                    "url": f"{image['url']}",
+                                },
+                            },
+                        }
+                    )
+
+            if native:
+                create_task(emitter())
+            else:
+                await emitter()
 
             return f"Done."
 
