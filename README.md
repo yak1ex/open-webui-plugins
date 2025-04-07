@@ -51,6 +51,77 @@ https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc44
   * `tools` are collected here: `get_tools()` https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/tools.py#L38
     * extra parameters are prepared also here: `process_chat_payload()` https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/middleware.py#L625
 
+#### Non-native function calls and native function calls
+
+* For native function calls, there are few options to show results to users.
+ `event_emitter()` postponed by `create_task()` is one promising way.
+* For non-native function calls, it might be better to return just `None` regardless of success or fail. Throwing exception and returning `str`, `dict` and `list` cause injecting RAG system prompt which often produces confusing messages.
+
+| |Non-native function calling|Native function calling|
+|-|-|-|
+|`event_emitter()` in a `Tool`|Work as expected|Overwritten (in another word, vanished) by proceeding `chat:completion` message by displaying function calling|
+|Returned value from `Tool`|Shown as citation and processed by injected RAG system prompt|Shown as text in function calling|
+|Exception in a `Tool`|Same as above|Same as above|
+
+#### Brief sequence of non-native function calls (not precisely)
+
+```mermaid
+sequenceDiagram
+  controller ->> +app: chat_completion()
+  app ->> +utils: process_chat_payload()
+  utils ->> utils: chat_completion_tools_handler()
+  activate utils
+  utils ->> +app: generate_chat_completion()
+  app ->> app: MADE tool_calls[]
+  app ->> -utils:  response
+  utils ->> tool: tool_function()
+  tool ->> utils: tool_result
+  utils ->> utils: sources.append(tool_result)
+  utils ->> utils: body, sources
+  deactivate utils
+  utils ->> utils: events.append(sources)
+  utils ->> utils: INJECT RAG template INTO system message
+  utils ->> -app: form_data, metadata, events
+  app ->> +utils: chat_completion_handler()
+  utils ->> -app: response
+  app ->> +utils: process_chat_response()
+  utils ->> db: Chats.upsert_message_to_chat_by_id_and_message_id() with sources
+  utils -) frontend: chat:completion with sources
+  frontend ->> frontend: SHOWN AS citation
+  utils ->> -app: response
+  app ->> -controller: response
+```
+
+#### Brief sequence of native function calls (not precisely)
+
+```mermaid
+sequenceDiagram
+  controller ->> +app: chat_completion()
+  app ->> +utils: process_chat_payload()
+  utils ->> utils: SET form_data["tools"]
+  utils ->> -app: form_data, metadata, events
+  app ->> +utils: chat_completion_handler()
+  utils ->> utils: MADE tools_calls[]
+  utils ->> -app: response
+  activate utils
+  app ->> utils: process_chat_response()
+  utils ->> app: task
+  utils -) utils: post_response_handler()
+  utils ->> tool: tool_function()
+  tool ->> utils: tooL_result
+  utils ->> utils: results.append(tool_result)
+  utils -) frontend: chat:completion with results
+  frontend ->> frontend: SHOWN AS function calling
+  utils ->> db: Chats.upsert_message_to_chat_by_id_and_message_id()
+  utils ->> +app: generate_chat_completion()
+  app ->> -utils: res
+  utils -) frontend: chat:completion with results
+  frontend ->> frontend: SHOWN AS function calling
+  utils ->> db: Chats.upsert_message_to_chat_by_id_and_message_id()
+  deactivate utils
+  app ->> -controller: response
+```
+
 ### Action
 
 * Action is loaded from module by: get_action_items_from_module() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/models.py#L171
