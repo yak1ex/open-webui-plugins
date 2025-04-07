@@ -17,7 +17,7 @@ import asyncio
 from open_webui.utils.misc import get_last_user_message
 from open_webui.env import VERSION
 
-DEFAULT_ONECALL_SUBMIT = tuple(map(int, VERSION.split("."))) >= (0, 5, 21)
+DEFAULT_ONECALL_SUBMIT = tuple(map(int, VERSION.split("."))) >= (0, 6, 0)
 
 class Action:
     class Valves(BaseModel):
