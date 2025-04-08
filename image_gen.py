@@ -18,13 +18,60 @@ import os
 import re
 import requests
 from datetime import datetime
-from typing import Callable
+from typing import Awaitable, Callable
 from fastapi import Request
 
+import socketio
+
+from open_webui.utils.auth import create_token
 from open_webui.routers.images import image_generations, GenerateImageForm
 from open_webui.models.chats import Chats
 from open_webui.models.users import Users
 from open_webui.tasks import create_task
+from open_webui.env import (
+    ENABLE_WEBSOCKET_SUPPORT,
+)
+
+Emitter = Awaitable[None]
+
+wait_queue: dict[tuple[str, str], Emitter] = {}
+connected = False
+sio = socketio.AsyncClient()
+
+
+async def nop() -> None:
+    pass
+
+
+def register_emitter(chat_id: str, message_id: str, emitter: Emitter) -> None:
+    """
+    Register an emitter for a given chat id and message id.
+    """
+    wait_queue[(chat_id, message_id)] = emitter
+
+
+def get_emitter(chat_id: str, message_id: str) -> Emitter:
+    """
+    Get the emitter for a given chat id and message id.
+    """
+    return wait_queue.pop((chat_id, message_id), nop())
+
+
+@sio.on("chat-events")
+async def queue_handler(data) -> None:
+    """
+    Call a registered emitter for a completed message
+    """
+    print(f"queue_handler {data=}")
+    event_data = data.get("data", {})
+    if (
+        "chat_id" in data
+        and "message_id" in data
+        and event_data.get("type", "") == "chat:completion"
+        and event_data.get("data", {}).get("done", False) == True
+    ):
+        await asyncio.sleep(0.5)
+        await get_emitter(data["chat_id"], data["message_id"])
 
 
 class Tools:
@@ -66,6 +113,20 @@ class Tools:
         )
 
         try:
+            global connected
+            if not connected:
+                print(f"{__user__=}")
+                await sio.connect(
+                    "http://localhost:8080",
+                    socketio_path="/ws/socket.io",
+                    auth={"token": create_token({"id": __user__.get("id")})},
+                    transports=(
+                        ["websocket"] if ENABLE_WEBSOCKET_SUPPORT else ["polling"]
+                    ),
+                )
+                # sio.on("chat-events", queue_handler)
+                connected = True
+
             images = await image_generations(
                 request=__request__,
                 form_data=GenerateImageForm(**{"prompt": prompt}),
@@ -81,37 +142,6 @@ class Tools:
 
             async def emitter():
                 print("emitter() called")
-                if native:
-                    tool_call_ids = __metadata__.get("tool_call_ids", None)
-                    if tool_call_ids:
-                        re_patterns = list(
-                            map(
-                                lambda tool_call_id: f'type="tool_calls" done="true" id="{tool_call_id}"',
-                                tool_call_ids,
-                            )
-                        )
-                    else:
-                        re_patterns = r'type="tool_calls" done="true"'
-
-                    for _ in range(20):
-                        message = Chats.get_message_by_id_and_message_id(
-                            __metadata__["chat_id"], __metadata__["message_id"]
-                        )
-                        print(message)
-                        if all(
-                            map(
-                                lambda re_pattern: re.search(
-                                    re_pattern, message.get("content", "")
-                                ),
-                                re_patterns,
-                            )
-                        ):
-                            break
-                        print("wait")
-                        await asyncio.sleep(0.5)
-                    await asyncio.sleep(0.5)
-
-                print("emit")
                 for image in images:
                     await __event_emitter__(
                         {
@@ -142,7 +172,9 @@ class Tools:
                     )
 
             if native:
-                create_task(emitter())
+                register_emitter(
+                    __metadata__["chat_id"], __metadata__["message_id"], emitter()
+                )
             else:
                 await emitter()
 
