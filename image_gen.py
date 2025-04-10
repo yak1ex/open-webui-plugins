@@ -20,7 +20,7 @@ import requests
 from datetime import datetime
 from typing import Awaitable, Callable
 from fastapi import Request
-
+from pydantic import BaseModel, Field
 import socketio
 
 from open_webui.utils.auth import create_token
@@ -70,12 +70,29 @@ async def queue_handler(data) -> None:
         and event_data.get("data", {}).get("done", False) == True
     ):
         await asyncio.sleep(0.5)
-        await get_emitter(data["chat_id"], data["message_id"])
+        await get_emitter(data["chat_id"], data["message_id"])()
 
 
 class Tools:
+    class Valves(BaseModel):
+        WEBUI_BACKEND_HOST: str = Field(
+            default=os.environ.get('HOST', 'localhost'),
+            description=(
+                "Host to connect to check if a native function calling completed. "
+                "Default is a value of an environment variable `HOST`, or `localhost` if not set."
+            ),
+        )
+        WEBUI_BACKEND_PORT: int = Field(
+            default=os.environ.get('PORT', 8080),
+            description=(
+                "Port to connect to check if a native function calling completed. "
+                "Default is a value of an environment variable `PORT`, or `8080` if not set."
+            ),
+        )
+
     def __init__(self):
         self.citation = False
+        self.valves = self.Valves()
 
     async def generate_image(
         self,
@@ -115,7 +132,7 @@ class Tools:
             if not sio.connected:
                 print(f"{__user__=}")
                 await sio.connect(
-                    "http://localhost:8080",
+                    f"http://{self.valves.WEBUI_BACKEND_HOST}:{self.valves.WEBUI_BACKEND_PORT}",
                     socketio_path="/ws/socket.io",
                     auth={"token": create_token({"id": __user__.get("id")})},
                     transports=(
