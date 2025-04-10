@@ -32,7 +32,7 @@ from open_webui.env import (
     ENABLE_WEBSOCKET_SUPPORT,
 )
 
-Emitter = Awaitable[None]
+Emitter = Callable[[], Awaitable[None]]
 
 wait_queue: dict[tuple[str, str], Emitter] = {}
 sio = socketio.AsyncClient()
@@ -53,7 +53,7 @@ def get_emitter(chat_id: str, message_id: str) -> Emitter:
     """
     Get the emitter for a given chat id and message id.
     """
-    return wait_queue.pop((chat_id, message_id), nop())
+    return wait_queue.pop((chat_id, message_id), nop)
 
 
 @sio.on("chat-events")
@@ -187,7 +187,7 @@ class Tools:
 
             if native:
                 register_emitter(
-                    __metadata__["chat_id"], __metadata__["message_id"], emitter()
+                    __metadata__["chat_id"], __metadata__["message_id"], emitter
                 )
             else:
                 await emitter()
