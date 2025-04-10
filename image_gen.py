@@ -18,7 +18,7 @@ import os
 import re
 import requests
 from datetime import datetime
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, NamedTuple
 from fastapi import Request
 from pydantic import BaseModel, Field
 import socketio
@@ -32,29 +32,89 @@ from open_webui.env import (
     ENABLE_WEBSOCKET_SUPPORT,
 )
 
-Emitter = Callable[[], Awaitable[None]]
+class Entry(NamedTuple):
+    emitter: Callable[[dict], Awaitable[None]]
+    id: str
+    images: list[dict]
+    prompt: str
 
-wait_queue: dict[tuple[str, str], Emitter] = {}
+
+wait_queue: dict[tuple[str, str], list[Entry]] = {}
 sio = socketio.AsyncClient()
 
 
-async def nop() -> None:
-    pass
-
-
-def register_emitter(chat_id: str, message_id: str, emitter: Emitter) -> None:
+def has_queue_entry(chat_id: str, message_id: str) -> bool:
     """
-    Register an emitter for a given chat id and message id.
+    Check if there is a queue entry for a given chat id and message id.
     """
-    wait_queue[(chat_id, message_id)] = emitter
+    return (chat_id, message_id) in wait_queue
 
 
-def get_emitter(chat_id: str, message_id: str) -> Emitter:
+def has_queue_entry_of_data(data: dict) -> bool:
     """
-    Get the emitter for a given chat id and message id.
+    Check if there is a queue entry for a given data.
     """
-    return wait_queue.pop((chat_id, message_id), nop)
+    return (
+        "chat_id" in data
+        and "message_id" in data
+        and data.get("data", {}).get("type", "") == "chat:completion"
+        and data.get("data", {}).get("data", {}).get("done", False) == True
+        and has_queue_entry(
+            data["chat_id"], data["message_id"])
+    )
 
+
+def append_queue_entry(chat_id: str, message_id: str, entry: Entry) -> None:
+    """
+    Append an entry to the queue for a given chat id and message id.
+    """
+    wait_queue.setdefault((chat_id, message_id), []).append(entry)
+
+
+def get_queue_entry(chat_id: str, message_id: str) -> list[Entry]:
+    """
+    Get the queue entry for a given chat id and message id.
+    """
+    return wait_queue.get((chat_id, message_id), [])
+
+
+def pop_queue_entry(chat_id: str, message_id: str) -> list[Entry]:
+    """
+    Pop the queue entry for a given chat id and message id.
+    """
+    return wait_queue.pop((chat_id, message_id), [])
+
+
+async def emitter(entry: Entry) -> None:
+    print("emitter() called")
+    for image in entry.images:
+        await entry.emitter(
+            {
+                "type": "message",
+                "data": {
+                    "content": f"![Generated Image]({image['url']} \"{entry.prompt}\")"
+                },
+            }
+        )
+        print(f"![Generated Image]({image['url']} \"{entry.prompt}\")")
+        await entry.emitter(
+            {
+                "type": "citation",
+                "data": {
+                    "document": [f"{image['url']}"],
+                    "metadata": [
+                        {
+                            "source": f"{image['url']}",
+                            "prompt": entry.prompt,
+                        }
+                    ],
+                    "source": {
+                        "name": f"TOOL:{entry.id}/generate_image with prompt: {entry.prompt}",
+                        "url": f"{image['url']}",
+                    },
+                },
+            }
+        )
 
 @sio.on("chat-events")
 async def queue_handler(data) -> None:
@@ -62,15 +122,10 @@ async def queue_handler(data) -> None:
     Call a registered emitter for a completed message
     """
     print(f"queue_handler {data=}")
-    event_data = data.get("data", {})
-    if (
-        "chat_id" in data
-        and "message_id" in data
-        and event_data.get("type", "") == "chat:completion"
-        and event_data.get("data", {}).get("done", False) == True
-    ):
+    if has_queue_entry_of_data(data):
         await asyncio.sleep(0.5)
-        await get_emitter(data["chat_id"], data["message_id"])()
+        for entry in get_queue_entry(data["chat_id"], data["message_id"]):
+            await emitter(entry)
 
 
 class Tools:
@@ -154,43 +209,20 @@ class Tools:
             )
             print(images)
 
-            async def emitter():
-                print("emitter() called")
-                for image in images:
-                    await __event_emitter__(
-                        {
-                            "type": "message",
-                            "data": {
-                                "content": f"![Generated Image]({image['url']} \"{prompt}\")"
-                            },
-                        }
-                    )
-                    print(f"![Generated Image]({image['url']} \"{prompt}\")")
-                    await __event_emitter__(
-                        {
-                            "type": "citation",
-                            "data": {
-                                "document": [f"{image['url']}"],
-                                "metadata": [
-                                    {
-                                        "source": f"{image['url']}",
-                                        "prompt": prompt,
-                                    }
-                                ],
-                                "source": {
-                                    "name": f"TOOL:{__id__}/generate_image with prompt: {prompt}",
-                                    "url": f"{image['url']}",
-                                },
-                            },
-                        }
-                    )
-
+            entry = Entry(
+                emitter=__event_emitter__,
+                id=__id__,
+                images=images,
+                prompt=prompt
+            )
             if native:
-                register_emitter(
-                    __metadata__["chat_id"], __metadata__["message_id"], emitter
+                append_queue_entry(
+                    __metadata__["chat_id"],
+                    __metadata__["message_id"],
+                    entry
                 )
             else:
-                await emitter()
+                await emitter(entry)
 
             return f"Done."
 
