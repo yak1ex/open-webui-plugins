@@ -35,7 +35,6 @@ from open_webui.env import (
 Emitter = Awaitable[None]
 
 wait_queue: dict[tuple[str, str], Emitter] = {}
-connected = False
 sio = socketio.AsyncClient()
 
 
@@ -113,8 +112,7 @@ class Tools:
         )
 
         try:
-            global connected
-            if not connected:
+            if not sio.connected:
                 print(f"{__user__=}")
                 await sio.connect(
                     "http://localhost:8080",
@@ -125,7 +123,6 @@ class Tools:
                     ),
                 )
                 # sio.on("chat-events", queue_handler)
-                connected = True
 
             images = await image_generations(
                 request=__request__,
