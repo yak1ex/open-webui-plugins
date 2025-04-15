@@ -1,10 +1,18 @@
 # Open WebUI Plugins
 
-## Image Gen Plus (wip)
+## Plug-Ins
+
+### Image Gen Plus (wip)
 
 This is a modified version for [Image Gen (0.5.3+)](https://openwebui.com/t/justinrahb/image_gen), which appears to be derived from [Image Gen](https://openwebui.com/t/jayhay123/image_gen).
 
 Both of these versions do not have license information. The plugin sources are public, and Open WebUI itself is released under BSD-3-Clause license, so it is assumed that the plugins are also released under a similar license.
+
+### Repeat Input
+
+This action is for repeating the last USER message in the chat. Even though action buttions are shown at the last ASSISTANT message, the last USER message is used for the content. Only 1 action buttion is shown until https://github.com/open-webui/open-webui/discussions/12169 is accepted.
+1-Click action button is for repeating the last USER message.
+Dialog action button is for modifying the last USER message.
 
 ## Development Notes
 
