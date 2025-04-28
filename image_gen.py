@@ -15,10 +15,8 @@ https://openwebui.com/t/justinrahb/image_gen released by justinrahb.
 
 import asyncio
 import os
-import re
-import requests
-from datetime import datetime
 from typing import Awaitable, Callable, NamedTuple
+
 from fastapi import Request
 from pydantic import BaseModel, Field
 import socketio
@@ -31,6 +29,7 @@ from open_webui.tasks import create_task
 from open_webui.env import (
     ENABLE_WEBSOCKET_SUPPORT,
 )
+
 
 class Entry(NamedTuple):
     emitter: Callable[[dict], Awaitable[None]]
