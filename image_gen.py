@@ -41,6 +41,7 @@ class Entry(NamedTuple):
 
 wait_queue: dict[tuple[str, str], list[Entry]] = {}
 sio = socketio.AsyncClient()
+parital_update: bool
 
 
 def has_queue_entry(chat_id: str, message_id: str) -> bool:
@@ -57,11 +58,19 @@ def has_queue_entry_of_data(data: dict) -> bool:
     return (
         "chat_id" in data
         and "message_id" in data
-        and data.get("data", {}).get("type", "") == "chat:completion"
-        and data.get("data", {}).get("data", {}).get("done", False) == True
         and has_queue_entry(
             data["chat_id"], data["message_id"])
     )
+
+
+def is_clearing_chat_completion(data: dict) -> bool:
+    return (
+        data.get("data", {}).get("type", "") == "chat:completion" and
+        "content" in data.get("data", {}).get("data", {}))
+
+
+def is_completed(data: dict) -> bool:
+    return data.get("data", {}).get("data", {}).get("done", False)
 
 
 def append_queue_entry(chat_id: str, message_id: str, entry: Entry) -> None:
@@ -85,36 +94,59 @@ def pop_queue_entry(chat_id: str, message_id: str) -> list[Entry]:
     return wait_queue.pop((chat_id, message_id), [])
 
 
-async def emitter(entry: Entry) -> None:
+def set_parital_update(value: bool) -> None:
+    """
+    Set the value of parital_update.
+    """
+    global parital_update
+    parital_update = value
+
+
+def get_parital_update() -> bool:
+    """
+    Get the value of parital_update.
+    """
+    global parital_update
+    return parital_update
+
+
+async def emitter(entries: list[Entry], completed: bool) -> None:
     print("emitter() called")
-    for image in entry.images:
-        await entry.emitter(
-            {
-                "type": "message",
-                "data": {
-                    "content": f"![Generated Image]({image['url']} \"{entry.prompt}\")"
-                },
-            }
-        )
-        print(f"![Generated Image]({image['url']} \"{entry.prompt}\")")
-        await entry.emitter(
-            {
-                "type": "citation",
-                "data": {
-                    "document": [f"{image['url']}"],
-                    "metadata": [
-                        {
-                            "source": f"{image['url']}",
-                            "prompt": entry.prompt,
-                        }
-                    ],
-                    "source": {
-                        "name": f"TOOL:{entry.id}/generate_image with prompt: {entry.prompt}",
-                        "url": f"{image['url']}",
-                    },
-                },
-            }
-        )
+    content = "\n".join(
+        f"![Generated Image]({image['url']} \"{entry.prompt}\")"
+        for entry in entries for image in entry.images
+    )
+    await entries[-1].emitter(
+        {
+            "type": "message",
+            "data": {
+                "content": content
+            },
+        }
+    )
+    print(content)
+    if completed:
+        for entry in entries:
+            for image in entry.images:
+                await entry.emitter(
+                    {
+                        "type": "citation",
+                        "data": {
+                            "document": [f"{image['url']}"],
+                            "metadata": [
+                                {
+                                    "source": f"{image['url']}",
+                                    "prompt": entry.prompt,
+                                }
+                            ],
+                            "source": {
+                                "name": f"TOOL:{entry.id}/generate_image with prompt: {entry.prompt}",
+                                "url": f"{image['url']}",
+                            },
+                        },
+                    }
+                )
+
 
 @sio.on("chat-events")
 async def queue_handler(data) -> None:
@@ -122,10 +154,13 @@ async def queue_handler(data) -> None:
     Call a registered emitter for a completed message
     """
     print(f"queue_handler {data=}")
-    if has_queue_entry_of_data(data):
-        await asyncio.sleep(0.5)
-        for entry in get_queue_entry(data["chat_id"], data["message_id"]):
-            await emitter(entry)
+    if is_clearing_chat_completion(data) and has_queue_entry_of_data(data):
+        completed = is_completed(data)
+        if get_parital_update() or completed:
+            queue_entry = pop_queue_entry if completed else get_queue_entry
+            await asyncio.sleep(0.5)
+            entries = queue_entry(data["chat_id"], data["message_id"])
+            await emitter(entries, completed)
 
 
 class Tools:
@@ -142,6 +177,13 @@ class Tools:
             description=(
                 "Port to connect to check if a native function calling completed. "
                 "Default is a value of an environment variable `PORT`, or `8080` if not set."
+            ),
+        )
+        PARTIAL_UPDATE: bool = Field(
+            default=True,
+            description=(
+                "Enable partial update when multiple images are generating. "
+                "If true, flushing occurs by repeated update."
             ),
         )
 
@@ -175,6 +217,7 @@ class Tools:
         """
         native = __metadata__.get("function_calling", "") == "native"
         print(native)
+        set_parital_update(self.valves.PARTIAL_UPDATE)
 
         await __event_emitter__(
             {
@@ -222,7 +265,7 @@ class Tools:
                     entry
                 )
             else:
-                await emitter(entry)
+                await emitter([entry], True)
 
             return f"Done."
 
