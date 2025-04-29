@@ -39,6 +39,7 @@ class Entry(NamedTuple):
 
 
 wait_queue: dict[tuple[str, str], list[Entry]] = {}
+wait_counter: dict[tuple[str, str], int] = {}
 sio = socketio.AsyncClient()
 parital_update: bool
 
@@ -91,6 +92,32 @@ def pop_queue_entry(chat_id: str, message_id: str) -> list[Entry]:
     Pop the queue entry for a given chat id and message id.
     """
     return wait_queue.pop((chat_id, message_id), [])
+
+
+def incr_wait_counter(chat_id: str, message_id: str) -> None:
+    """
+    Increment a wait counter for a given chat id and message id.
+    """
+    key = (chat_id, message_id)
+    wait_counter[key] = wait_counter.get(key, 0) + 1
+
+
+def decr_wait_counter(chat_id: str, message_id: str) -> None:
+    """
+    Decrement a wait counter for a given chat id and message id.
+    """
+    key = (chat_id, message_id)
+    if wait_counter.get(key, 0) > 1:
+        wait_counter[key] -= 1
+    elif key in wait_counter:
+        del wait_counter[key]
+
+
+def get_wait_counter(chat_id: str, message_id: str) -> int:
+    """
+    Get the wait counter for a given chat id and message id.
+    """
+    return wait_counter.get((chat_id, message_id), 0)
 
 
 def set_parital_update(value: bool) -> None:
@@ -157,9 +184,13 @@ async def queue_handler(data) -> None:
         completed = is_completed(data)
         if get_parital_update() or completed:
             queue_entry = pop_queue_entry if completed else get_queue_entry
+            key = data["chat_id"], data["message_id"]
+            incr_wait_counter(*key)
             await asyncio.sleep(0.5)
-            entries = queue_entry(data["chat_id"], data["message_id"])
-            await emitter(entries, completed)
+            if get_wait_counter(*key) == 1:
+                entries = queue_entry(*key)
+                await emitter(entries, completed)
+            decr_wait_counter(*key)
 
 
 class Tools:
