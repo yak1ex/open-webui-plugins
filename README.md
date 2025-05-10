@@ -152,3 +152,145 @@ sequenceDiagram
   * add_or_update_user_message() https://github.com/open-webui/open-webui/blob/b03fc97e287f31ad07bda896143959bc4413f7d2/backend/open_webui/utils/misc.py#L152
     * does not trigger chat completion
 * Frontend builds parent-children relationships among messages, creates a pair of user and assistant messages when a user input is submitted, and triggers chat completion. So, it seems that it is a way to call `postMessage()` with `input:prompt` and `input:prompt:submit` type, by a chat message with `execute` type for creating a new user message.
+
+### Consideration to use MCP server for image generation by SD WebUI
+
+* Even in prior-to-PoC state
+
+#### Brief sequence
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant WebUI as OpenWebUI Core
+    participant Pipe
+    participant Model as Base Model
+    participant MCP
+    participant SDWebUI
+    MCP->>SDWebUI: request lists for<br>checkpoints,<br>loras,<br>wildcards
+    User->>WebUI: input
+    alt is prompt-like
+        WebUI->>+Pipe: input<br>(base prompt)
+        Pipe->>MCP: request theme list
+        Pipe->>Model: select some themes<br> according to base prompt
+        Pipe->>MCP: request random choice<br> among selected themes
+        Pipe->>MCP: get recipe for the theme,<br> and optionally checkpoint
+        Pipe->>Model: request to enhance prompt
+        opt checkpoints given
+            Pipe->>MCP: Set checkpoint
+            MCP->>SDWebUI: Set checkpoint
+        end
+        alt use internal
+            Pipe->>WebUI: image_generations()
+        else use MCP
+            Pipe->>MCP: image_generations()
+        end
+        opt checkpoints given
+            Pipe->>MCP: Reset checkpoint
+            MCP->>SDWebUI: Reset checkpoint
+        end
+        Pipe--)-WebUI: result message<br> to show images
+    else otherwise
+        WebUI->>+Pipe: input
+        Pipe->>Model: input
+        Pipe--)-WebUI: result
+    end
+```
+
+#### Possible design choice
+
+* Where randomness/variation is provided
+  * Options
+    * explicit choice by a tool in MCP server
+      * simple choice
+      * dedicated tool
+    * Model
+    * logic in Pipe
+    * wildcards in SDWebUI
+  * Rules
+    * wildcard should be self-contained
+    * Tool should handle simple choice and complex rule 
+    * Avoid logic in Pipe
+    * Model should handle not-routine decision
+* How to construct final prompts
+  * Options
+    * Embed a text into the specific placeholder in pre-compiled prompt
+      * '... {} ...'.format(enhanced_text)
+    * Embed some text into the specific placeholders
+      * '... {var1} ... {var2} ...'.format(**arguments)
+      * Make query for each parameters if necessary
+  * Try both
+    * Most elements can be shared. What differs is who calls them.
+* image_generations()
+  * Options
+    * Internal
+    * On MCP
+  * Internal image_generations() only have the following parameters: `model`, `prompt`, `size`, `n` and `negative_prompt`.
+    * Additional parameters, especially for extension control such as Regional Prompter, extends possibility of this workflow.
+* How to define recipe
+  * Options: Mixture of logic and configuration
+  * Prefer configuration
+
+#### Typical scenario
+
+* theme-dependent
+  * situation
+  * composition
+  * specific style
+* theme-independent
+  * artist style
+  * mutually exclusive
+    * specific character
+    * character properties
+
+#### Rough interface
+
+* High-level
+  * RequestThemeList
+    * Parameter: None
+    * Return: list[Theme]
+      * Theme
+        * name: str
+        * description: str
+  * RequestWeightedRandomPick
+    * Parameter
+      * weights: list[float]
+    * Return: int
+  * RequestRecipe
+    * Parameter
+      * name: str
+    * Return: Recipe
+      * template: str
+      * instruct: str
+      * checkpoint: str
+  * RequestRecipeAlt
+    * Returns final prompt directly
+    * Parameter
+      * arguments: dict[str, str]
+    * Return: Recipe
+      * prompt: str
+      * checkpoint: str
+  * RequestSetCheckpoint
+    * Parameter
+      * checkpoint: str
+    * Return: bool
+* Low-level
+  * RequestLoraList
+    * Parameter
+      * basemodel: str
+    * Return: list[Lora]
+      * Lora
+        * prompt: str
+        * description: str
+  * RequestWildcardList
+    * Parameter: None
+    * Return: list[Wildcards]
+      * Wildcards
+        * prompt: str
+        * description: str
+
+#### Invocation
+
+```
+uvx mcpo --port 8000 -- uv run --with mcp mcp run ./server.py
+```
